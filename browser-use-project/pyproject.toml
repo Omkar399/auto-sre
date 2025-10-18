@@ -1,0 +1,18 @@
+[project]
+name = "browser-use-project"
+version = "0.1.0"
+description = "Browser Use with Local Setup"
+requires-python = ">=3.13"
+dependencies = [
+    "browser-use>=0.8.1",
+    "anthropic>=0.71.0",
+    "google-generativeai>=0.8.0",
+    "python-dotenv",
+]
+
+[tool.uv]
+managed = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
