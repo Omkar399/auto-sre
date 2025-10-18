@@ -95,7 +95,9 @@ class BugHuntingAgent:
         self,
         code: str,
         language: str = "python",
-        description: Optional[str] = None
+        description: Optional[str] = None,
+        show_header: bool = False,
+        header_text: Optional[str] = None
     ) -> dict:
         """
         Tool 2: Execute code in Daytona sandbox to identify the bug
@@ -104,13 +106,17 @@ class BugHuntingAgent:
             code: Code to execute
             language: python, javascript, or bash
             description: What the test is checking
+            show_header: Whether to show the tool header
+            header_text: Custom header text if different from default
         
         Returns:
             dict with execution results and any errors
         """
-        print("\n" + "="*70)
-        print("🏗️  TOOL 2: TESTING CODE WITH DAYTONA")
-        print("="*70)
+        if show_header:
+            header = header_text or "🏗️  TOOL 2: TESTING CODE WITH DAYTONA"
+            print("\n" + "="*70)
+            print(header)
+            print("="*70)
         
         # Use sandbox tool to run code
         result = self.sandbox_tool.run_code(
@@ -132,62 +138,163 @@ class BugHuntingAgent:
 
     async def analyze_with_gemini(self, context: dict) -> dict:
         """
-        Tool 3: Use Gemini to analyze the investigation and suggest fixes
+        Tool 3: Interactive analysis loop - Gemini writes code, sandbox executes it
+        
+        Loop:
+        1. Gemini writes TEST CODE to reproduce/demonstrate the bug
+        2. Sandbox executes it
+        3. Gemini analyzes output and writes FIX CODE
+        4. Sandbox executes the fix to verify it works
         
         Args:
-            context: Dict containing bug_description, reproduction_results, test_results, code_snippet
+            context: Dict containing bug details and reproduction results
         
         Returns:
-            dict with analysis and suggested fixes
+            dict with analysis, test results, and fix verification
         """
         print("\n" + "="*70)
-        print("🧠 TOOL 3: ANALYZING BUG & SUGGESTING FIXES WITH GEMINI")
+        print("🧠 TOOL 3: GEMINI ANALYSIS WITH SANDBOX VERIFICATION")
         print("="*70)
         
         prompt = f"""
-        You are a senior software engineer debugging an application bug.
+You are a senior software engineer debugging an application. Your task is to:
+
+1. ANALYZE the bug from this context:
+{json.dumps(context, indent=2)}
+
+2. WRITE TEST CODE (Python) that demonstrates the bug's behavior
+   - Include print statements showing the bug clearly
+   - Show expected vs actual behavior
+   - Return this as a code block that can be executed
+
+3. After I tell you the test results, WRITE FIX CODE
+   - Show the corrected version
+   - Include verification that the fix works
+   - Return this as a code block
+
+IMPORTANT: I will execute your code in a sandbox and show you the results.
+First, provide ONLY the TEST CODE that demonstrates the bug.
+Use this JSON format:
+
+{{
+    "phase": "test_code",
+    "description": "Brief description of what the test does",
+    "code": "Your Python code here",
+    "root_cause_hypothesis": "What you think is causing the bug"
+}}
+"""
         
-        INVESTIGATION CONTEXT:
-        {json.dumps(context, indent=2)}
-        
-        INVESTIGATION LOG:
-        {json.dumps(self.investigation_log, indent=2)}
-        
-        Based on this investigation:
-        1. Identify the root cause of the bug
-        2. Explain why this bug occurs
-        3. Provide the exact code fix
-        4. Write a test case to verify the fix
-        5. Rate the severity (Critical/High/Medium/Low)
-        
-        Format your response as JSON with these keys:
-        - root_cause: String explaining the root cause
-        - why_it_occurs: Technical explanation
-        - severity: Critical/High/Medium/Low
-        - suggested_fix: Code snippet with the fix
-        - fix_explanation: Why this fixes it
-        - test_case: Python code to verify the fix
-        - additional_notes: Any other important points
-        """
+        print("\n📝 Step 1: Gemini writes test code to demonstrate bug...")
         
         try:
             response = self.gemini_model.generate_content(prompt)
             
-            # Try to parse as JSON, fallback to text
+            # Parse Gemini's response
             try:
-                analysis = json.loads(response.text)
+                test_phase = json.loads(response.text)
             except json.JSONDecodeError:
-                analysis = {"raw_analysis": response.text}
+                # Try to extract JSON from response
+                import re
+                json_match = re.search(r'\{.*\}', response.text, re.DOTALL)
+                if json_match:
+                    test_phase = json.loads(json_match.group())
+                else:
+                    return {
+                        "success": False,
+                        "error": "Could not parse Gemini response",
+                        "raw_response": response.text,
+                    }
             
-            print("📊 Analysis Results:")
-            print(json.dumps(analysis, indent=2))
+            print(f"\n🧪 Running test code in sandbox...")
+            print(f"   Hypothesis: {test_phase.get('root_cause_hypothesis', 'N/A')}")
             
+            # EXECUTE: Run test code in sandbox (no header - we're inside Tool 3)
+            test_result = self.run_code_test_with_daytona(
+                code=test_phase.get("code", "print('test')"),
+                language="python",
+                description=test_phase.get("description", "Gemini test code"),
+                show_header=False,
+            )
+            
+            print(f"\n✅ Test executed. Output:")
+            print(f"   {test_result['output']}")
+            
+            # NOW: Ask Gemini to write fix code based on results
+            print(f"\n💡 Step 2: Gemini analyzes results and writes fix code...")
+            
+            fix_prompt = f"""
+Great! The test confirmed the bug. Here's what we found:
+
+TEST RESULTS:
+{test_result['output']}
+
+Now, please write the CORRECTED CODE that fixes this bug.
+Include verification code that proves the fix works.
+
+Return ONLY valid JSON in this format:
+{{
+    "phase": "fix_code",
+    "root_cause": "Explanation of what was wrong",
+    "why_it_occurs": "Technical reason for the bug",
+    "fix_explanation": "How your fix resolves it",
+    "code": "Your fixed Python code here",
+    "severity": "Critical/High/Medium/Low"
+}}
+"""
+            
+            fix_response = self.gemini_model.generate_content(fix_prompt)
+            
+            # Parse fix response
+            try:
+                fix_phase = json.loads(fix_response.text)
+            except json.JSONDecodeError:
+                import re
+                json_match = re.search(r'\{.*\}', fix_response.text, re.DOTALL)
+                if json_match:
+                    fix_phase = json.loads(json_match.group())
+                else:
+                    return {
+                        "success": False,
+                        "error": "Could not parse fix response",
+                        "test_phase": test_phase,
+                        "test_result": test_result,
+                    }
+            
+            print(f"\n🔧 Root Cause: {fix_phase.get('root_cause', 'N/A')}")
+            print(f"   Fix: {fix_phase.get('fix_explanation', 'N/A')}")
+            
+            # EXECUTE: Run fix code in sandbox (no header - we're inside Tool 3)
+            print(f"\n✅ Running fix code in sandbox...")
+            fix_result = self.run_code_test_with_daytona(
+                code=fix_phase.get("code", "print('fixed')"),
+                language="python",
+                description="Testing Gemini's fix",
+                show_header=False,
+            )
+            
+            print(f"\n✅ Fix executed. Output:")
+            print(f"   {fix_result['output']}")
+            
+            # Compile results
             return {
                 "success": True,
-                "analysis": analysis,
+                "test_phase": test_phase,
+                "test_result": test_result,
+                "fix_phase": fix_phase,
+                "fix_result": fix_result,
+                "analysis": {
+                    "root_cause": fix_phase.get("root_cause", "N/A"),
+                    "why_it_occurs": fix_phase.get("why_it_occurs", "N/A"),
+                    "fix_explanation": fix_phase.get("fix_explanation", "N/A"),
+                    "severity": fix_phase.get("severity", "Unknown"),
+                    "suggested_fix": fix_phase.get("code", "N/A"),
+                }
             }
+            
         except Exception as e:
             print(f"❌ Gemini analysis error: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e),
@@ -240,6 +347,7 @@ class BugHuntingAgent:
                 code=test_code,
                 language="python",
                 description="Testing suspected buggy code",
+                show_header=True,
             )
             test_results.append(test_result)
         
@@ -261,6 +369,7 @@ class BugHuntingAgent:
                 code=fix_code,
                 language="python",
                 description="Testing suggested fix",
+                show_header=True,
             )
             test_results.append(fix_test)
         
