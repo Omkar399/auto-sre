@@ -15,6 +15,9 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent / "browser-use-project"))
 from bug_reproduction_tool import BugReproductionTool
 
+# Import sandbox tool
+from sandbox_tool import SandboxTool, create_test_code_for_bug, create_fix_test_code
+
 import google.generativeai as genai
 from daytona import Daytona, DaytonaConfig
 
@@ -39,10 +42,8 @@ class BugHuntingAgent:
         # Initialize browser reproduction tool
         self.browser_tool = BugReproductionTool()
         
-        # Initialize Daytona
-        daytona_config = DaytonaConfig(api_key=daytona_api_key)
-        self.daytona = Daytona(daytona_config)
-        self.sandbox = None
+        # Initialize sandbox tool
+        self.sandbox_tool = SandboxTool(api_key=daytona_api_key)
         
         # Store investigation results
         self.investigation_log = []
@@ -90,7 +91,12 @@ class BugHuntingAgent:
                 "bug_confirmed": False,
             }
 
-    def run_code_test_with_daytona(self, code: str, language: str = "python", description: str = "") -> dict:
+    def run_code_test_with_daytona(
+        self,
+        code: str,
+        language: str = "python",
+        description: Optional[str] = None
+    ) -> dict:
         """
         Tool 2: Execute code in Daytona sandbox to identify the bug
         
@@ -106,48 +112,23 @@ class BugHuntingAgent:
         print("🏗️  TOOL 2: TESTING CODE WITH DAYTONA")
         print("="*70)
         
-        if not self.sandbox:
-            print("📍 Creating Daytona sandbox...")
-            self.sandbox = self.daytona.create()
-            print(f"✅ Sandbox created: {self.sandbox.id}")
+        # Use sandbox tool to run code
+        result = self.sandbox_tool.run_code(
+            code=code,
+            language=language,
+            description=description,
+        )
         
-        print(f"🧪 Test: {description or 'Code execution'}")
-        print(f"📝 Language: {language}")
+        # Log the result
+        log_entry = {
+            "phase": "code_testing",
+            "test": description,
+            "exit_code": result.get("exit_code"),
+            "success": result.get("success"),
+        }
+        self.investigation_log.append(log_entry)
         
-        try:
-            response = self.sandbox.process.code_run(code, language)
-            
-            result = {
-                "success": response.exit_code == 0,
-                "exit_code": response.exit_code,
-                "output": response.result,
-                "language": language,
-                "description": description,
-            }
-            
-            # Log
-            log_entry = {
-                "phase": "code_testing",
-                "test": description,
-                "exit_code": response.exit_code,
-            }
-            self.investigation_log.append(log_entry)
-            
-            if response.exit_code == 0:
-                print(f"✅ Test passed!")
-                print(f"Output:\n{response.result}")
-            else:
-                print(f"❌ Test failed!")
-                print(f"Error:\n{response.result}")
-            
-            return result
-        except Exception as e:
-            print(f"❌ Daytona execution error: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "exit_code": -1,
-            }
+        return result
 
     async def analyze_with_gemini(self, context: dict) -> dict:
         """
@@ -254,32 +235,7 @@ class BugHuntingAgent:
         
         if suspect_code:
             # Create a test that demonstrates the bug
-            test_code = f"""
-# Bug reproduction test
-import json
-
-# Suspect code to test
-suspect_code = '''
-{suspect_code}
-'''
-
-# Simple validation test
-try:
-    print("Testing suspect code logic...")
-    # The suspect code contains a JavaScript backend, but we can analyze it
-    if 'FIXME50' in suspect_code and 'chargeAmount' in suspect_code:
-        print("✓ Coupon code FIXME50 mentioned in suspect code")
-    
-    if 'amount' in suspect_code:
-        print("✓ Amount variable found")
-        
-    if 'BUG' in suspect_code or 'TODO' in suspect_code:
-        print("⚠ BUG or TODO marker found in code - potential issue identified")
-    
-    print("Analysis complete")
-except Exception as e:
-    print(f"Error: {{e}}")
-"""
+            test_code = create_test_code_for_bug(suspect_code)
             test_result = self.run_code_test_with_daytona(
                 code=test_code,
                 language="python",
@@ -300,7 +256,7 @@ except Exception as e:
         # PHASE 4: Test the suggested fix
         if analysis.get("success") and "suggested_fix" in analysis.get("analysis", {}):
             print("\n▶️  PHASE 4: TESTING SUGGESTED FIX...")
-            fix_code = analysis["analysis"]["suggested_fix"]
+            fix_code = create_fix_test_code(analysis["analysis"]["suggested_fix"])
             fix_test = self.run_code_test_with_daytona(
                 code=fix_code,
                 language="python",
@@ -324,10 +280,8 @@ except Exception as e:
 
     def cleanup(self):
         """Clean up resources"""
-        if self.sandbox:
-            print("\n🧹 Cleaning up Daytona sandbox...")
-            self.sandbox.delete()
-            print("✅ Sandbox deleted")
+        if self.sandbox_tool:
+            self.sandbox_tool.cleanup()
         
         if self.browser_tool:
             print("🧹 Closing browser...")
