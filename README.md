@@ -1,4 +1,4 @@
-# 🤖 Auto-SRE: Autonomous Bug Hunting & Site Reliability Engineering Platform
+# 🤖 AutoSRE Team 32: Autonomous Bug Hunting & Site Reliability Engineering Platform
 
 <div align="center">
 
@@ -7,8 +7,9 @@
 [![Browser-Use](https://img.shields.io/badge/Browser--Use-v0.8.1-orange.svg)](https://browser-use.com)
 [![Gemini](https://img.shields.io/badge/Gemini-2.0--Flash-purple.svg)](https://ai.google.dev)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Team](https://img.shields.io/badge/Team-32-ff69b4.svg)](#)
 
-**An enterprise-grade autonomous system that combines the power of Daytona's secure code sandbox with Browser Use's intelligent web automation to revolutionize bug hunting and site reliability engineering.**
+**An enterprise-grade autonomous system by Team 32 that combines the power of Daytona's secure code sandbox with Browser Use's intelligent web automation to revolutionize bug hunting and site reliability engineering.**
 
 [Features](#-key-technologies) • [Quick Start](#-quick-start) • [Architecture](#-system-architecture) • [Demo](#-live-demo) • [Documentation](#-documentation)
 
@@ -1144,7 +1145,7 @@ Built with these amazing technologies:
 
 <div align="center">
 
-**Made with ❤️ by the Auto-SRE Team**
+**Made with ❤️ by AutoSRE Team 32**
 
 [Website](https://auto-sre.dev) • [Documentation](https://docs.auto-sre.dev) • [Blog](https://blog.auto-sre.dev)
 
