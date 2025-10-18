@@ -34,11 +34,13 @@ class ToolsAgent:
 
     def _define_tools(self):
         """Define the tools Gemini can call"""
+        from google.generativeai.types import content_types
+        
         return [
             {
                 "name": "reproduce_ui_bug",
                 "description": "Reproduce a UI bug by navigating and performing actions in the browser. Returns observations about the bug.",
-                "input_schema": {
+                "parameters": {
                     "type": "object",
                     "properties": {
                         "target_url": {
@@ -60,7 +62,7 @@ class ToolsAgent:
             {
                 "name": "run_code_test",
                 "description": "Execute code in an isolated Daytona sandbox to test or debug code. Supports Python, JavaScript, and Bash.",
-                "input_schema": {
+                "parameters": {
                     "type": "object",
                     "properties": {
                         "code": {
@@ -83,7 +85,7 @@ class ToolsAgent:
             {
                 "name": "suggest_fix",
                 "description": "Analyze collected evidence and suggest a bug fix with test case",
-                "input_schema": {
+                "parameters": {
                     "type": "object",
                     "properties": {
                         "bug_analysis": {
@@ -101,7 +103,7 @@ class ToolsAgent:
             {
                 "name": "generate_report",
                 "description": "Generate the final investigation report with findings and recommendations",
-                "input_schema": {
+                "parameters": {
                     "type": "object",
                     "properties": {
                         "findings": {

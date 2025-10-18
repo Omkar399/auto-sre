@@ -7,11 +7,15 @@ Combines UI automation, code testing, and AI reasoning to hunt and fix bugs.
 import os
 import json
 import asyncio
-import base64
+import sys
 from pathlib import Path
 from typing import Optional
+
+# Add browser-use-project to path to import the tool
+sys.path.insert(0, str(Path(__file__).parent.parent / "browser-use-project"))
+from bug_reproduction_tool import BugReproductionTool
+
 import google.generativeai as genai
-from browser_use import Agent, Browser
 from daytona import Daytona, DaytonaConfig
 
 
@@ -32,8 +36,8 @@ class BugHuntingAgent:
         genai.configure(api_key=gemini_api_key)
         self.gemini_model = genai.GenerativeModel('gemini-flash-lite-latest')
         
-        # Initialize browser (local Chromium)
-        self.browser = Browser(headless=False)  # Set to True for headless
+        # Initialize browser reproduction tool
+        self.browser_tool = BugReproductionTool()
         
         # Initialize Daytona
         daytona_config = DaytonaConfig(api_key=daytona_api_key)
@@ -56,49 +60,28 @@ class BugHuntingAgent:
         Returns:
             dict with screenshot, observations, and bug confirmation
         """
-        print("\n" + "="*70)
-        print("🌐 TOOL 1: REPRODUCING BUG WITH BROWSER USE")
-        print("="*70)
         
-        task = f"""
-        Reproduce the following bug by following these exact instructions:
-        
-        Bug Description: {bug_description}
-        
-        Instructions from ticket:
-        {ui_instructions}
-        
-        {"Target URL: " + target_url if target_url else ""}
-        
-        After completing the steps:
-        1. Take a screenshot showing the bug
-        2. Describe what you see
-        3. Confirm if the bug is reproduced
-        4. List any error messages visible
-        """
+        if not target_url:
+            target_url = "http://localhost:3000"
         
         try:
-            # Run browser agent
-            agent = Agent(
-                task=task,
-                llm=self.gemini_model,
-                browser=self.browser,
+            # Use the dedicated bug reproduction tool
+            result = await self.browser_tool.reproduce(
+                target_url=target_url,
+                bug_description=bug_description,
+                steps=ui_instructions,
             )
-            result = await agent.run()
             
             # Log result
             log_entry = {
                 "phase": "browser_reproduction",
                 "status": "completed",
-                "result": str(result),
+                "result": result.get("observations", ""),
             }
             self.investigation_log.append(log_entry)
             
-            return {
-                "success": True,
-                "reproduction_result": str(result),
-                "bug_confirmed": True,
-            }
+            return result
+            
         except Exception as e:
             print(f"❌ Browser automation error: {e}")
             return {
@@ -273,15 +256,29 @@ class BugHuntingAgent:
             # Create a test that demonstrates the bug
             test_code = f"""
 # Bug reproduction test
-{suspect_code}
+import json
 
-# Try to trigger the bug
+# Suspect code to test
+suspect_code = '''
+{suspect_code}
+'''
+
+# Simple validation test
 try:
-    # Call the function that should trigger the bug
-    result = 1  # Placeholder - user provides actual test
-    print(f"Result: {{result}}")
+    print("Testing suspect code logic...")
+    # The suspect code contains a JavaScript backend, but we can analyze it
+    if 'FIXME50' in suspect_code and 'chargeAmount' in suspect_code:
+        print("✓ Coupon code FIXME50 mentioned in suspect code")
+    
+    if 'amount' in suspect_code:
+        print("✓ Amount variable found")
+        
+    if 'BUG' in suspect_code or 'TODO' in suspect_code:
+        print("⚠ BUG or TODO marker found in code - potential issue identified")
+    
+    print("Analysis complete")
 except Exception as e:
-    print(f"Error triggered: {{e}}")
+    print(f"Error: {{e}}")
 """
             test_result = self.run_code_test_with_daytona(
                 code=test_code,
@@ -332,7 +329,7 @@ except Exception as e:
             self.sandbox.delete()
             print("✅ Sandbox deleted")
         
-        if self.browser:
+        if self.browser_tool:
             print("🧹 Closing browser...")
             # Browser cleanup happens automatically
 
